@@ -15,6 +15,7 @@ var FileIndexer = function () {
   this.changeList = [];
   this.dirList = [];
   this.totalFileSize = 0;
+  this.fileErrors = [];
 
   this.stats = {
     files: 0,
@@ -88,11 +89,24 @@ FileIndexer.prototype.isChanged = async function (file, stats) {
   });
 };
 
+FileIndexer.prototype.hasAccess = function(file){
+  try {
+    fs.accessSync(file, fs.constants.R_OK);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 FileIndexer.prototype.readDir = async function (dir) {
   let items = await readdir(dir, { withFileTypes: true });
   for (let index = 0; index < items.length; index++) {
     if(!items[index].name){ continue; }
     let fullpath = pathLib.join(dir, items[index].name);
+    if(!this.hasAccess(fullpath)){
+      this.fileErrors.push(fullpath);
+      continue;
+    }
     let stats = fs.lstatSync(fullpath);
     if (stats.isDirectory()) {
       this.dirList.push({ dir: fullpath });
