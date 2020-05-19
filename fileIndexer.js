@@ -21,6 +21,7 @@ var FileIndexer = function () {
     files: 0,
     size: 0
   };
+  this.excludeDirs = [];
 };
 
 FileIndexer.prototype.reset = function (dir) {
@@ -34,6 +35,20 @@ FileIndexer.prototype.reset = function (dir) {
   this.closeDb();
 };
 
+FileIndexer.prototype.isExcluded = function (dir){
+  for (let i = 0; i < this.excludeDirs.length; i++) {
+    if(this.excludeDirs[i].path == dir){
+      return true;
+    }
+  }
+
+  return false;
+}
+
+FileIndexer.prototype.setExcludedDirs = function (dirs) {
+  this.excludeDirs = dirs;
+};
+
 FileIndexer.prototype.setDir = function (dir) {
   this.options.dir = dir;
 };
@@ -42,8 +57,17 @@ FileIndexer.prototype.setDatabase = function (databaseName) {
   this.options.databaseName = databaseName;
 };
 
-FileIndexer.prototype.initDb = function (name) {
-  if (this.db == null) this.db = level(this.options.databaseName);
+FileIndexer.prototype.initDb = async function () {
+  return new Promise((resolve, reject) => {
+    if (this.db == null) {
+      this.db = level(this.options.databaseName, {}, (err, db) => {
+        if (err) throw err
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
 };
 
 FileIndexer.prototype.closeDb = function (name) {
@@ -57,39 +81,43 @@ FileIndexer.prototype.scan = async function (dir) {
   if (this.options.databaseName === null || this.options.dir === null) {
     throw "Options not set";
   }
-  this.initDb();
+  await this.initDb();
   await this.readDir(this.options.dir);
-  this.closeDb();
+  await this.closeDb();
 };
 
-FileIndexer.prototype.updateStats = async function (file, stats) {
+FileIndexer.prototype.updateStats = function (file, stats) {
   if (this.db === null) {
     throw "Database is not open";
   }
-  await this.db.put(file, JSON.stringify(stats));
+  return this.db.put(file, JSON.stringify(stats));
 };
 
-FileIndexer.prototype.isChanged = async function (file, stats) {
+FileIndexer.prototype.isChanged = function (file, stats) {
   if (this.db === null) {
     throw "Database is not open";
   }
-  await this.db.get(file, (err, value) => {
-    this.stats.files++;
-    this.stats.size += stats.size;
-    if (err) {
-      this.totalFileSize += stats.size;
-      this.changeList.push({ fullpath: file, stats: stats });
-      return;
-    }
-    value = JSON.parse(value);
-    if (value.atimeMs != stats.atimeMs) {
-      this.totalFileSize += stats.size;
-      this.changeList.push({ fullpath: file, stats: stats });
-    }
+  return new Promise((resolve, reject) => {
+    this.db.get(file, (err, value) => {
+      this.stats.files++;
+      this.stats.size += stats.size;
+      if (err) {
+        this.totalFileSize += stats.size;
+        this.changeList.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        resolve();
+        return;
+      }
+      value = JSON.parse(value);
+      if (value.mtimeMs != stats.mtimeMs) {
+        this.totalFileSize += stats.size;
+        this.changeList.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+      }
+      resolve();
+    });
   });
 };
 
-FileIndexer.prototype.hasAccess = function(file){
+FileIndexer.prototype.hasAccess = function (file) {
   try {
     fs.accessSync(file, fs.constants.R_OK);
     return true;
@@ -99,16 +127,30 @@ FileIndexer.prototype.hasAccess = function(file){
 }
 
 FileIndexer.prototype.readDir = async function (dir) {
-  let items = await readdir(dir, { withFileTypes: true });
+  let items = [];
+  try {
+    items = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    return false;
+  }
+  let fullpath = null;
+  let stats = null;
   for (let index = 0; index < items.length; index++) {
-    if(!items[index].name){ continue; }
-    let fullpath = pathLib.join(dir, items[index].name);
-    if(!this.hasAccess(fullpath)){
+    if (!items[index].name) { continue; }
+    fullpath = pathLib.join(dir, items[index].name);
+    if (!this.hasAccess(fullpath)) {
       this.fileErrors.push(fullpath);
       continue;
     }
-    let stats = fs.lstatSync(fullpath);
+    try {
+      stats = fs.lstatSync(fullpath);
+    } catch (error) {
+      this.fileErrors.push(fullpath);
+      continue;
+    }
+
     if (stats.isDirectory()) {
+      if(this.isExcluded(fullpath)){ continue; }
       this.dirList.push({ dir: fullpath });
       await this.readDir(fullpath);
     } else if (stats.isFile()) {
