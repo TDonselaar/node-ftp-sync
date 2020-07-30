@@ -34,6 +34,7 @@ var FtpSync = function ({ username, password, host }) {
   this.skipedUploadSize = 0;
   this.excludeDirs = [];
   this.batches = [];
+  this.continueUpload = null;
 };
 
 FtpSync.prototype.setExcludedDirs = function (dirs) {
@@ -139,7 +140,7 @@ FtpSync.prototype.setDir = function (dir) {
       throw "Path does not exist";
     }
     this.batches.push({
-        'dir':dir[i]
+      'dir': dir[i]
     });
   }
 };
@@ -211,7 +212,7 @@ FtpSync.prototype.sync = async function () {
 
 
     if (bytesDiff > 0) {
-      this.lastUploadSpeed = ((bytesDiff / (timeDiff < lastTime ? lastTime : timeDiff )) * 8);
+      this.lastUploadSpeed = ((bytesDiff / (timeDiff < lastTime ? lastTime : timeDiff)) * 8);
     }
 
     lastTime = timeDiff;
@@ -331,6 +332,15 @@ Date.prototype.yyyymmddhhmmss = function () {
   return "".concat(yyyymmddhhmm).concat(ss);
 };
 
+FtpSync.prototype.resumeUpload = async function (from, to) {
+  let size = await this.client.size(to);
+  let stream = fs.createReadStream(from, {
+    start: size
+  });
+  this.skipedUploadSize = size;
+  await this.client.appendFrom(stream, to);
+};
+
 FtpSync.prototype.syncFiles = async function (i) {
   if (this.halt()) {
     return null;
@@ -352,6 +362,7 @@ FtpSync.prototype.syncFiles = async function (i) {
         upath.toUnix(pathLib.relative(this.getBaseDir(pathInfo.dir), pathInfo.dir));
       filePath = ftpDir + "/" + pathInfo.base;
       filePath = filePath.replace("//", "/");
+      let resumeUpload = false;
 
       this.status = {
         index: i,
@@ -361,6 +372,10 @@ FtpSync.prototype.syncFiles = async function (i) {
         dirFtp: ftpDir,
         stats: this.fileIndexer.changeList[i].stats,
       };
+
+      if (this.continueUpload !== null && this.continueUpload === this.status.fullPath) {
+        resumeUpload = true;
+      }
 
       if (!this.cacheCheck(ftpDir)) {
         await this.createDir(ftpDir);
@@ -382,10 +397,15 @@ FtpSync.prototype.syncFiles = async function (i) {
         }
       }
       if (changed) {
-        await this.client.uploadFrom(
-          this.fileIndexer.changeList[i].fullpath,
-          filePath
-        );
+        if (resumeUpload) {
+          await this.resumeUpload(this.fileIndexer.changeList[i].fullpath, filePath);
+          this.continueUpload = null;
+        } else {
+          await this.client.uploadFrom(
+            this.fileIndexer.changeList[i].fullpath,
+            filePath
+          );
+        }
       } else {
         this.skipedUploadSize += this.fileIndexer.changeList[i].stats.size;
       }
@@ -434,8 +454,8 @@ FtpSync.prototype.fileExists = function (file) {
   }
 }
 
-FtpSync.prototype.getBaseDir = function (dir){
-  if(this.batches.length === 1){
+FtpSync.prototype.getBaseDir = function (dir) {
+  if (this.batches.length === 1) {
     return this.batches[0].dir;
   }
 
