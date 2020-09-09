@@ -16,6 +16,8 @@ var FileIndexer = function () {
   this.dirList = [];
   this.totalFileSize = 0;
   this.fileErrors = [];
+  this.endFileList = [];
+  this.pushToEnd = [];
 
   this.stats = {
     files: 0,
@@ -27,6 +29,8 @@ var FileIndexer = function () {
 FileIndexer.prototype.reset = function (dir) {
   this.changeList = [];
   this.dirList = [];
+  this.endFileList = [];
+  this.pushToEnd = [];
   this.totalFileSize = 0;
   this.stats = {
     files: 0,
@@ -35,15 +39,29 @@ FileIndexer.prototype.reset = function (dir) {
   this.closeDb();
 };
 
-FileIndexer.prototype.isExcluded = function (dir){
-  for (let i = 0; i < this.excludeDirs.length; i++) {
-    if(this.excludeDirs[i].path == dir){
+FtpSync.prototype.skipFile = function (file) {
+  for (let i = 0; i < this.endFileList.length; i++) {
+    if (this.endFileList[i] == file) {
       return true;
     }
   }
 
   return false;
 }
+
+FileIndexer.prototype.isExcluded = function (dir) {
+  for (let i = 0; i < this.excludeDirs.length; i++) {
+    if (this.excludeDirs[i].path == dir) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+FileIndexer.prototype.setEndFileList = function (files) {
+  this.endFileList = files;
+};
 
 FileIndexer.prototype.setExcludedDirs = function (dirs) {
   this.excludeDirs = dirs;
@@ -103,14 +121,22 @@ FileIndexer.prototype.isChanged = function (file, stats) {
       this.stats.size += stats.size;
       if (err) {
         this.totalFileSize += stats.size;
-        this.changeList.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        if (this.skipFile(file)) {
+          this.pushToEnd.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        } else {
+          this.changeList.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        }
         resolve();
         return;
       }
       value = JSON.parse(value);
       if (value.mtimeMs != stats.mtimeMs) {
         this.totalFileSize += stats.size;
-        this.changeList.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        if (this.skipFile(file)) {
+          this.pushToEnd.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        } else {
+          this.changeList.push({ fullpath: file, stats: stats, baseDir: this.options.dir });
+        }
       }
       resolve();
     });
@@ -150,12 +176,16 @@ FileIndexer.prototype.readDir = async function (dir) {
     }
 
     if (stats.isDirectory()) {
-      if(this.isExcluded(fullpath)){ continue; }
+      if (this.isExcluded(fullpath)) { continue; }
       this.dirList.push({ dir: fullpath });
       await this.readDir(fullpath);
     } else if (stats.isFile()) {
       await this.isChanged(fullpath, stats);
     }
+  }
+
+  for (let index2 = 0; index2 < this.pushToEnd.length; index2++) {
+    this.changeList.push(this.pushToEnd[index2]);
   }
 };
 

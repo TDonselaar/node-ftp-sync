@@ -35,10 +35,15 @@ var FtpSync = function ({ username, password, host }) {
   this.excludeDirs = [];
   this.batches = [];
   this.continueUpload = null;
+  this.endFileList = [];
 };
 
 FtpSync.prototype.setExcludedDirs = function (dirs) {
   this.excludeDirs = dirs;
+};
+
+FtpSync.prototype.setEndFileList = function (files){
+  this.endFileList = files;
 };
 
 FtpSync.prototype.reset = function () {
@@ -57,6 +62,7 @@ FtpSync.prototype.reset = function () {
   this.uploadAvarageCounter = 1;
   this.skipedUploadSize = 0;
   this.excludeDirs = [];
+  this.endFileList = [];
 };
 
 FtpSync.prototype.check = function () {
@@ -183,11 +189,13 @@ FtpSync.prototype.sync = async function () {
   }
 
   this.fileIndexer.reset();
+  
   //scan all dirs
   for (let i = 0; i < this.batches.length; i++) {
     this.fileIndexer.setDatabase(this.options.databaseName);
     this.fileIndexer.setDir(this.batches[i].dir);
     this.fileIndexer.setExcludedDirs(this.excludeDirs);
+    this.fileIndexer.setEndFileList(this.endFileList);
     await this.fileIndexer.scan();
   }
 
