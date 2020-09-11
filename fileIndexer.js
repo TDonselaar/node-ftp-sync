@@ -39,7 +39,7 @@ FileIndexer.prototype.reset = function (dir) {
   this.closeDb();
 };
 
-FtpSync.prototype.skipFile = function (file) {
+FileIndexer.prototype.skipFile = function (file) {
   for (let i = 0; i < this.endFileList.length; i++) {
     if (this.endFileList[i] == file) {
       return true;
