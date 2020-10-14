@@ -75,6 +75,10 @@ FileIndexer.prototype.setDatabase = function (databaseName) {
   this.options.databaseName = databaseName;
 };
 
+FileIndexer.prototype.onAccessError = function(file){
+
+};
+
 FileIndexer.prototype.initDb = async function () {
   return new Promise((resolve, reject) => {
     if (this.db == null) {
@@ -148,6 +152,7 @@ FileIndexer.prototype.hasAccess = function (file) {
     fs.accessSync(file, fs.constants.R_OK);
     return true;
   } catch (err) {
+    this.onAccessError(file);
     return false;
   }
 }

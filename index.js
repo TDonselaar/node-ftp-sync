@@ -34,8 +34,12 @@ var FtpSync = function ({ username, password, host }) {
   this.skipedUploadSize = 0;
   this.excludeDirs = [];
   this.batches = [];
-  this.continueUpload = null;
+  this.continueUpload = [];
   this.endFileList = [];
+  var this_ = this;
+  this.fileIndexer.onAccessError = function(file){
+    this_.onFileError('LOCKED', file);
+  };
 };
 
 FtpSync.prototype.setExcludedDirs = function (dirs) {
@@ -91,6 +95,10 @@ FtpSync.prototype.connect = async function () {
   }
 };
 
+FtpSync.prototype.onFileError = function(type, file){
+
+}
+
 FtpSync.prototype.disconnect = function () {
   this.client.close();
 };
@@ -115,14 +123,23 @@ FtpSync.prototype.onUploadError = function (err, i) {
   if (err.code === "ECONNABORTED") {
     return i;
   }
-  //fire or dir removed
+
+  //file removed
   if (err.code === "ENOENT") {
-    this.fileIndexer.fileErrors.push(this.fileIndexer.changeList[i].fullpath)
+    this.fileIndexer.fileErrors.push(this.fileIndexer.changeList[i].fullpath);
+    this.onFileError('REMOVED', this.fileIndexer.changeList[i].fullpath);
     return i + 1;
   }
-
+  //file locked
   if (err.code === "EBUSY") {
-    this.fileIndexer.fileErrors.push(this.fileIndexer.changeList[i].fullpath)
+    this.fileIndexer.fileErrors.push(this.fileIndexer.changeList[i].fullpath);
+    this.onFileError('LOCKED', this.fileIndexer.changeList[i].fullpath);
+    return i + 1;
+  }
+  //permission issue
+  if (err.code === "EPERM") {
+    this.fileIndexer.fileErrors.push(this.fileIndexer.changeList[i].fullpath);
+    this.onFileError('PERMISSION', this.fileIndexer.changeList[i].fullpath);
     return i + 1;
   }
 
@@ -349,6 +366,15 @@ FtpSync.prototype.resumeUpload = async function (from, to) {
   await this.client.appendFrom(stream, to);
 };
 
+FtpSync.prototype.removeFileFromResume = function(src){
+  for (let i = 0; i < this.continueUpload.length; i++) {
+    if(this.continueUpload[i] === src){
+      this.continueUpload.splice(i, 1);
+      break;
+    }
+  }
+}
+
 FtpSync.prototype.syncFiles = async function (i) {
   if (this.halt()) {
     return null;
@@ -381,7 +407,7 @@ FtpSync.prototype.syncFiles = async function (i) {
         stats: this.fileIndexer.changeList[i].stats,
       };
 
-      if (this.continueUpload !== null && this.continueUpload === this.status.fullPath) {
+      if (this.continueUpload.includes(this.status.fullPath)) {
         resumeUpload = true;
       }
 
@@ -407,7 +433,7 @@ FtpSync.prototype.syncFiles = async function (i) {
       if (changed) {
         if (resumeUpload) {
           await this.resumeUpload(this.fileIndexer.changeList[i].fullpath, filePath);
-          this.continueUpload = null;
+          this.removeFileFromResume(this.status.fullPath);
         } else {
           await this.client.uploadFrom(
             this.fileIndexer.changeList[i].fullpath,
