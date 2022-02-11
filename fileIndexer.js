@@ -44,7 +44,7 @@ FileIndexer.prototype.reset = async function(dir) {
 
 FileIndexer.prototype.blockedFile = function(file) {
     for (let i = 0; i < this.blockFileList.length; i++) {
-        if (this.blockFileList[i].toLowerCase() == file.toLowerCase()) {
+        if (this.blockFileList[i] == file) {
             return true;
         }
     }
@@ -63,7 +63,7 @@ FileIndexer.prototype.skipFile = function(file) {
 
 FileIndexer.prototype.isExcluded = function(dir) {
     for (let i = 0; i < this.excludeDirs.length; i++) {
-        if (this.excludeDirs[i].path == dir) {
+        if (this.excludeDirs[i].path.toLowerCase() == dir.toLowerCase()) {
             return true;
         }
     }
