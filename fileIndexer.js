@@ -44,7 +44,7 @@ FileIndexer.prototype.reset = async function(dir) {
 
 FileIndexer.prototype.blockedFile = function(file) {
     for (let i = 0; i < this.blockFileList.length; i++) {
-        if (this.blockFileList[i] == file) {
+        if (this.blockFileList[i].toLowerCase() == file.toLowerCase()) {
             return true;
         }
     }

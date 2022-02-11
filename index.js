@@ -46,6 +46,7 @@ var FtpSync = function ({ username, password, host }) {
     this.ftpPurgeList = [];
     this.removeCounter = 0;
     this.ftpScanCounter = 0;
+    this.totalItemsToScan = 0;
     this.removeDirList = [];
     this.dirRemovedErrorInfo = {};
 };
@@ -318,6 +319,8 @@ FtpSync.prototype.sync = async function () {
     this.fileIndexer.addAllToEnd();
     this.scanning = false;
 
+    this.totalItemsToScan = this.fileIndexer.stats.files;
+
     //set the first file before we start if there are files
     if (this.fileIndexer.changeList.length > 0) {
         let pathInfo = pathLib.parse(this.fileIndexer.changeList[0].fullpath);
@@ -466,6 +469,7 @@ FtpSync.prototype.getPurgeList = async function (localPath, remoteDirPath, level
     }
 
     if (Array.isArray(list)) {
+        
         for (let i = 0; i < list.length; i++) {
             let ftpItem = list[i];
             if (ftpItem.type == 2) {
@@ -486,7 +490,8 @@ FtpSync.prototype.getPurgeList = async function (localPath, remoteDirPath, level
                 this.FTPPurgeStatus({
                     action: "ftp-purge-status",
                     count: this.removeCounter,
-                    total: this.ftpScanCounter
+                    scanned: this.ftpScanCounter,
+                    total: this.totalItemsToScan
                 });
                 if (!fs.existsSync(localPath + "/" + ftpItem.name)) {
                     this.ftpPurgeList.push({
@@ -772,7 +777,8 @@ FtpSync.prototype.remove = async function (file) {
         this.FTPPurgeStatus({
             action: "ftp-purge-status",
             count: this.removeCounter,
-            total: this.ftpScanCounter
+            scanned: this.ftpScanCounter,
+            total: this.totalItemsToScan
         });
 
         await this.fileIndexer.db.del(file);
