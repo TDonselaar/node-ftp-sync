@@ -3,7 +3,6 @@
 const fs = require("fs");
 const { readdir } = require("fs").promises;
 const pathLib = require("path");
-const ftpcore = require("qusly-core");
 const level = require("level");
 
 var FileIndexer = function() {
@@ -61,14 +60,28 @@ FileIndexer.prototype.skipFile = function(file) {
     return false;
 }
 
-FileIndexer.prototype.isExcluded = function(dir) {
+FileIndexer.prototype.isExcluded = function(baseDir, dir) {
     for (let i = 0; i < this.excludeDirs.length; i++) {
-        if (this.excludeDirs[i].path.toLowerCase() == dir.toLowerCase()) {
+        if (typeof this.excludeDirs[i].isRegex == "boolean" && this.excludeDirs[i].isRegex) {
+          if (new RegExp(this.excludeDirs[i].path.toLowerCase(), "g").test(dir.toLowerCase())) {
+            if(typeof this.excludeDirs[i].absoluteFilter == "boolean" && this.excludeDirs[i].absoluteFilter){
+              let testDir = new RegExp(this.excludeDirs[i].path.toLowerCase(), "g");
+              if(testDir.test(baseDir.toLowerCase()) && testDir.lastIndex == baseDir.length || baseDir.length == 3 && process.platform == "win32"){
+                return true;
+              }else{
+                return false;
+              }
+            }
             return true;
+          }
+        } else {
+          if (this.excludeDirs[i].path.toLowerCase() == dir.toLowerCase()) {
+            return true;
+          }
         }
-    }
-
-    return false;
+      }
+    
+      return false;
 }
 
 FileIndexer.prototype.setBlockedFileList = function(files) {
@@ -219,7 +232,7 @@ FileIndexer.prototype.readDir = async function(dir) {
         }
 
         if (stats.isDirectory()) {
-            if (this.isExcluded(fullpath)) { continue; }
+            if (this.isExcluded(dir, fullpath)) { continue; }
             this.dirList.push({ dir: fullpath });
             await this.readDir(fullpath);
             this.claculateFiles();

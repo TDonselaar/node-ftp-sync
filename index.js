@@ -47,8 +47,11 @@ var FtpSync = function ({ username, password, host }) {
     this.removeCounter = 0;
     this.ftpScanCounter = 0;
     this.totalItemsToScan = 0;
+    this.purgeFilesChecked = 0;
     this.removeDirList = [];
     this.dirRemovedErrorInfo = {};
+    this.stopping = false;
+    this.purgeOutputTimer = 0;
 };
 
 FtpSync.prototype.log = function (text) {
@@ -90,6 +93,8 @@ FtpSync.prototype.reset = async function () {
     this.scanning = false;
     this.ftpPurgeList = [];
     this.dirRemovedErrorInfo = {};
+    this.stopping = false;
+    this.purgeFilesChecked = 0;
 };
 
 FtpSync.prototype.check = function () {
@@ -123,11 +128,16 @@ FtpSync.prototype.onFileError = function (type, file) {
 }
 
 FtpSync.prototype.disconnect = function () {
-    this.client.close();
+    //force close
+    try{
+        this.client.close();
+    }catch (e){
+
+    }
 };
 
 FtpSync.prototype.reconnect = async function () {
-    this.client.close();
+    this.disconnect();
     await this.connect();
 };
 
@@ -345,9 +355,6 @@ FtpSync.prototype.sync = async function () {
     let uploadFileChange = null;
     let lastTime = 0;
     this.client.trackProgress((info) => {
-        if (this.halt()) {
-            return;
-        }
         this.statusFtp = info;
         if (this.uploadSpeedTime == null) {
             this.uploadSpeedTime = new Date().getTime();
@@ -382,6 +389,9 @@ FtpSync.prototype.sync = async function () {
         if (uploadFileChange === this.status.fullPath) {
             this.uploadSpeedTime = new Date().getTime();
         }
+        if (info.type !== "list" && this.halt()) {
+            return;
+        }
     });
     for (let i = 0; i < this.batches.length; i++) {
         this.log('nocache:' + this.nocache + ' | ' + this.batches[i].dir + ' -> ' + this.ftpBaseDir);
@@ -412,7 +422,8 @@ FtpSync.prototype.sync = async function () {
 };
 
 FtpSync.prototype.halt = function () {
-    if (this.stop) {
+    if (this.stop && !this.stopping) {
+        this.stopping = true;
         this.disconnect();
         return true;
     }
@@ -462,6 +473,7 @@ FtpSync.prototype.getPurgeList = async function (localPath, remoteDirPath, level
 
     try {
         await this.client.cd(remoteDirPath);
+        this.log('getting a list : '.remoteDirPath);
         list = await this.client.list();
     } catch (err) {
         let error = this.onUploadError(err, 1, true);
@@ -491,6 +503,7 @@ FtpSync.prototype.getPurgeList = async function (localPath, remoteDirPath, level
                     action: "ftp-purge-status",
                     count: this.removeCounter,
                     scanned: this.ftpScanCounter,
+                    localScanned: this.purgeFilesChecked,
                     total: this.totalItemsToScan
                 });
                 if (!fs.existsSync(localPath + "/" + ftpItem.name)) {
@@ -778,6 +791,7 @@ FtpSync.prototype.remove = async function (file) {
             action: "ftp-purge-status",
             count: this.removeCounter,
             scanned: this.ftpScanCounter,
+            localScanned: this.purgeFilesChecked,
             total: this.totalItemsToScan
         });
 
@@ -885,9 +899,20 @@ FtpSync.prototype.purge = async function (callback) {
     await this.fileIndexer.initDb();
     let files = [];
     let mainDir = "";
-
+ 
     this.fileIndexer.db.createReadStream({ keys: true, values: false })
         .on('data', (file) => {
+            this.purgeFilesChecked++;
+            if(this.purgeOutputTimer < Date.now()){
+                this.purgeOutputTimer = Date.now()+1000;
+                this.FTPPurgeStatus({
+                    action: "ftp-purge-status",
+                    count: this.removeCounter,
+                    scanned: this.ftpScanCounter,
+                    localScanned: this.purgeFilesChecked,
+                    total: this.totalItemsToScan
+                });
+            }
             mainDir = this.getMainDir(file);
             if (this.fileExists(mainDir)) {
                 if (!this.fileExists(file)) {
