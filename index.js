@@ -32,6 +32,7 @@ var FtpSync = function ({ username, password, host }) {
     this.dirCreationCache = [];
     this.uploadAvarageCounter = 1;
     this.nocache = true;
+    this.checkSource = false;
     this.skipedUploadSize = 0;
     this.excludeDirs = [];
     this.batches = [];
@@ -126,6 +127,7 @@ FtpSync.prototype.connect = async function () {
 FtpSync.prototype.onFileError = function (type, file) {
 
 }
+
 
 FtpSync.prototype.disconnect = function () {
     //force close
@@ -393,6 +395,22 @@ FtpSync.prototype.sync = async function () {
             return;
         }
     });
+    
+
+    var forceTimestampCheck = false;
+    if(this.fileIndexer.changeList.length == this.fileIndexer.stats.files && !this.nocache || this.checkSource){
+        //if this is true we need to check the filetime on the server chaned even if this is a old sync
+        forceTimestampCheck = true;
+        this.nocache = true;
+    }
+
+    this.log(
+        "done, changes:" +
+        this.fileIndexer.changeList.length +
+        " == " +
+        this.fileIndexer.stats.files
+    );
+
     for (let i = 0; i < this.batches.length; i++) {
         this.log('nocache:' + this.nocache + ' | ' + this.batches[i].dir + ' -> ' + this.ftpBaseDir);
     }
@@ -404,6 +422,8 @@ FtpSync.prototype.sync = async function () {
     );
 
     this.statusStart({
+        nocache: this.nocache,
+        forceTimestampCheck: forceTimestampCheck,
         totalSize: this.fileIndexer.totalFileSize,
         totalFiles: this.fileIndexer.changeList.length,
         dirFiles: this.fileIndexer.stats.files,
@@ -686,6 +706,7 @@ FtpSync.prototype.syncFiles = async function (i) {
                     );
                 }
             } else {
+                this.log('Not changed');
                 this.skipedUploadSize += this.fileIndexer.changeList[i].stats.size;
             }
 
@@ -945,6 +966,7 @@ FtpSync.prototype.FTPPurge = async function () {
         ftpDir = this.ftpBaseDir + "/" + upath.toUnix(pathLib.relative(this.getBaseDir(this.batches[i].dir), this.batches[i].dir));
 
         await this.getPurgeList(this.batches[i].dir, ftpDir, 0);
+  
         for (let i2 = 0; i2 < this.ftpPurgeList.length; i2++) {
             maxErrorCounter = 0;
             response = false;
