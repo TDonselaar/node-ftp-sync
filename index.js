@@ -790,8 +790,8 @@ FtpSync.prototype.getMainDir = function (dir) {
     return bestMatch === "" ? null : bestMatch;
 }
 
-FtpSync.prototype.remove = async function (file) {
-    if (!this.fileExists(file)) {
+FtpSync.prototype.remove = async function (file, excludeCheck = false, isExcluded = false) {
+    if (!this.fileExists(file) || excludeCheck && isExcluded) {
         this.log('Ftp removing:' + file);
         let pathInfo = pathLib.parse(file);
         let ftpDir =
@@ -819,7 +819,8 @@ FtpSync.prototype.remove = async function (file) {
         await this.fileIndexer.db.del(file);
 
         try {
-            if (!this.fileExists(pathInfo.dir)) {
+            let baseDir = this.getBaseDir(pathInfo.dir);
+            if (!this.fileExists(pathInfo.dir) || excludeCheck && this.isExcluded(baseDir, pathInfo.dir)) {
                 if (!this.removeDirList.includes(ftpDir)) {
                     this.removeDirList.push(ftpDir);
                     this.purgeDirCheck(pathInfo.dir);
@@ -892,7 +893,7 @@ FtpSync.prototype.removeErrorHandel = async function (error) {
     }
 };
 
-FtpSync.prototype.purgeList = async function (files) {
+FtpSync.prototype.purgeList = async function (files, excludeCheck = false, isExcluded = false) {
     let response = false;
     let maxErrorCounter = 0;
     for (let i = 0; i < files.length; i++) {
@@ -900,7 +901,7 @@ FtpSync.prototype.purgeList = async function (files) {
             maxErrorCounter = 0;
             response = false;
             while (!response) {
-                response = await this.remove(files[i]);
+                response = await this.remove(files[i], excludeCheck, isExcluded);
                 maxErrorCounter++;
 
                 if (maxErrorCounter > 10) {
@@ -915,12 +916,37 @@ FtpSync.prototype.purgeList = async function (files) {
     await this.purgeDirs();
 }
 
+FtpSync.prototype.isExcluded = function(baseDir, dir) {
+    for (let i = 0; i < this.excludeDirs.length; i++) {
+        if (typeof this.excludeDirs[i].isRegex == "boolean" && this.excludeDirs[i].isRegex) {
+          if (new RegExp(this.excludeDirs[i].path.toLowerCase(), "g").test(dir.toLowerCase())) {
+            if(typeof this.excludeDirs[i].absoluteFilter == "boolean" && this.excludeDirs[i].absoluteFilter){
+              let testDir = new RegExp(this.excludeDirs[i].path.toLowerCase(), "g");
+              if(testDir.test(baseDir.toLowerCase()) && testDir.lastIndex == baseDir.length || baseDir.length == 3 && process.platform == "win32"){
+                return true;
+              }else{
+                return false;
+              }
+            }
+            return true;
+          }
+        } else {
+          //check if the dir starts with the exclude path
+            if (dir.toLowerCase().startsWith(this.excludeDirs[i].path.toLowerCase()+pathLib.sep) || dir.toLowerCase() == this.excludeDirs[i].path.toLowerCase()) {
+                return true;
+            }
+        }
+      }
+    
+      return false;
+}
+
 FtpSync.prototype.purge = async function (callback) {
 
     await this.fileIndexer.initDb();
     let files = [];
     let mainDir = "";
- 
+    let dir = "";
     this.fileIndexer.db.createReadStream({ keys: true, values: false })
         .on('data', (file) => {
             this.purgeFilesChecked++;
@@ -935,8 +961,9 @@ FtpSync.prototype.purge = async function (callback) {
                 });
             }
             mainDir = this.getMainDir(file);
+            dir = pathLib.dirname(file);
             if (this.fileExists(mainDir)) {
-                if (!this.fileExists(file)) {
+                if (!this.fileExists(file) || this.isExcluded(mainDir, dir)) {
                     files.push(file);
                 }
             } else {
