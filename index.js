@@ -930,7 +930,7 @@ FtpSync.prototype.isExcluded = function(baseDir, dir) {
             }
             return true;
           }
-        } else {
+        } else if(baseDir != dir){
           //check if the dir starts with the exclude path
             if (dir.toLowerCase().startsWith(this.excludeDirs[i].path.toLowerCase()+pathLib.sep) || dir.toLowerCase() == this.excludeDirs[i].path.toLowerCase()) {
                 return true;
